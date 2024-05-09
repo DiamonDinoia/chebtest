@@ -30,8 +30,9 @@ T cheb_eval_fast(T x, const T *c) {
     return cheb_eval<ORDER>(x, c);
 }
 
+
 template <typename T>
-inline T cheb_eval_vector_order_12(T x, const T *c) {
+__attribute__((always_inline)) inline T cheb_eval_vector_order_12(T x, const T *c) {
     const __m256d x2 = _mm256_set1_pd(2 * x);
 
     __m256d c0 = _mm256_loadu_pd(c);
@@ -39,24 +40,24 @@ inline T cheb_eval_vector_order_12(T x, const T *c) {
 
     __m256d tmp = c1;
     c1 = _mm256_sub_pd(_mm256_loadu_pd(c), c0);
-    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+    c0 = _mm256_fmadd_pd(c0, x2, tmp);
 
     __m128d c2 = _mm_loadu_pd(c);
     __m128d c3 = _mm_loadu_pd(c + 2);
 
     __m128d tmp2 = c3;
     c3 = _mm_sub_pd(_mm_loadu_pd(c + 4), c2);
-    c2 = _mm_add_pd(tmp2, _mm_mul_pd(c2, _mm_set1_pd(x)));
+    c2 =  _mm_fmadd_pd(c2, _mm_set1_pd(x), tmp2);
 
     c0 = _mm256_add_pd(c0, _mm256_castpd128_pd256(c2));
     c1 = _mm256_add_pd(c1, _mm256_castpd128_pd256(c3));
     // Combine the results
-    __m256d result = _mm256_add_pd(c1, _mm256_mul_pd(c0, x2));
+    __m256d result =  _mm256_fmadd_pd(c0, x2, c1);
     return result[0] + result[1] + result[2] + result[3];
 }
 
 template <typename T>
-inline T cheb_eval_vector_order_8(T x, const T *c) {
+__attribute__((always_inline)) inline T cheb_eval_vector_order_8(T x, const T *c) {
     const __m256d x2 = _mm256_set1_pd(2 * x);
 
     __m256d c0 = _mm256_loadu_pd(c);
@@ -64,18 +65,18 @@ inline T cheb_eval_vector_order_8(T x, const T *c) {
 
     __m256d tmp = c1;
     c1 = _mm256_sub_pd(_mm256_loadu_pd(c), c0);
-    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+    c0 = _mm256_fmadd_pd(c0, x2, tmp);
 
     tmp = c1;
     c1 = _mm256_sub_pd(_mm256_loadu_pd(c + 4), c0);
-    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+    c0 = _mm256_fmadd_pd(c0, x2, tmp);
     // Combine the results
-    __m256d result = _mm256_add_pd(c1, _mm256_mul_pd(c0, x2));
+    __m256d result = _mm256_fmadd_pd(c0, x2, c1);
     return result[0] + result[1] + result[2] + result[3];
 }
 
 template <typename T>
-inline T cheb_eval_vector_order_4(T x, const T *c) {
+__attribute__((always_inline)) inline T cheb_eval_vector_order_4(T x, const T *c) {
     const T x2 = 2 * x;
     // Load the first two coefficients
     __m256d c0_c1 = _mm256_set_pd(0, 0, c[1], c[0]);
@@ -84,7 +85,7 @@ inline T cheb_eval_vector_order_4(T x, const T *c) {
     // Compute c1
     __m256d c1 = _mm256_sub_pd(c_i_c_i1, c0_c1);
     // Compute c0
-    c0_c1 = _mm256_add_pd(_mm256_permute_pd(c0_c1, 0x05), _mm256_mul_pd(c0_c1, _mm256_set1_pd(x2)));
+    c0_c1 = _mm256_fmadd_pd(c0_c1, _mm256_set1_pd(x2), _mm256_permute_pd(c0_c1, 0x05));
     // Update c0_c1 for the next iteration
     c0_c1 = _mm256_blend_pd(c1, c0_c1, 0b1100);
     // Extract the final result from c0_c1
