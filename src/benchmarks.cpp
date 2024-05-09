@@ -1,5 +1,8 @@
+#include <cmath>       // for std::abs
+#include <immintrin.h> // for AVX
 #include <nanobench.h>
 #include <random>
+#include <stdexcept>
 
 double cheb_eval_generic(int order, double x, const double *c);
 double cheb_eval_if(int order, double x, const double *coeffs);
@@ -7,6 +10,7 @@ double cheb_eval_switch(int order, double x, const double *c);
 
 template <int ORDER, typename T>
 inline T cheb_eval(T x, const T *c) {
+    //        __asm(";cheb_eval start");
     const T x2 = 2 * x;
 
     T c0 = c[0];
@@ -16,47 +20,148 @@ inline T cheb_eval(T x, const T *c) {
         c1 = c[i] - c0;
         c0 = tmp + c0 * x2;
     }
-
+    //    __asm(";cheb_eval end");
     return c1 + c0 * x;
+}
+
+template <int ORDER, typename T>
+T cheb_eval_fast(T x, const T *c) {
+    return cheb_eval<ORDER>(x, c);
+}
+
+template <typename T>
+inline T cheb_eval_vector_order_12(T x, const T *c) {
+    const __m256d x2 = _mm256_set1_pd(2 * x);
+
+    __m256d c0 = _mm256_loadu_pd(c);
+    __m256d c1 = _mm256_loadu_pd(c + 4);
+
+    __m256d tmp = c1;
+    c1 = _mm256_sub_pd(_mm256_loadu_pd(c), c0);
+    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+
+    __m128d c2 = _mm_loadu_pd(c);
+    __m128d c3 = _mm_loadu_pd(c + 2);
+
+    __m128d tmp2 = c3;
+    c3 = _mm_sub_pd(_mm_loadu_pd(c + 4), c2);
+    c2 = _mm_add_pd(tmp2, _mm_mul_pd(c2, _mm_set1_pd(x)));
+
+    c0 = _mm256_add_pd(c0, _mm256_castpd128_pd256(c2));
+    c1 = _mm256_add_pd(c1, _mm256_castpd128_pd256(c3));
+    // Combine the results
+    __m256d result = _mm256_add_pd(c1, _mm256_mul_pd(c0, x2));
+    return result[0] + result[1] + result[2] + result[3];
+}
+
+template <typename T>
+inline T cheb_eval_vector_order_8(T x, const T *c) {
+    const __m256d x2 = _mm256_set1_pd(2 * x);
+
+    __m256d c0 = _mm256_loadu_pd(c);
+    __m256d c1 = _mm256_loadu_pd(c + 4);
+
+    __m256d tmp = c1;
+    c1 = _mm256_sub_pd(_mm256_loadu_pd(c), c0);
+    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+
+    tmp = c1;
+    c1 = _mm256_sub_pd(_mm256_loadu_pd(c + 4), c0);
+    c0 = _mm256_add_pd(tmp, _mm256_mul_pd(c0, x2));
+    // Combine the results
+    __m256d result = _mm256_add_pd(c1, _mm256_mul_pd(c0, x2));
+    return result[0] + result[1] + result[2] + result[3];
+}
+
+template <typename T>
+inline T cheb_eval_vector_order_4(T x, const T *c) {
+    const __m128d x2 = _mm_set1_pd(2 * x);
+
+    __m128d c0 = _mm_loadu_pd(c);
+    __m128d c1 = _mm_loadu_pd(c + 2);
+
+    __m128d tmp = c1;
+    c1 = _mm_sub_pd(_mm_loadu_pd(c + 4), c0);
+    c0 = _mm_add_pd(tmp, _mm_mul_pd(c0, x2));
+
+    // Combine the results
+    __m128d result = _mm_add_pd(c1, _mm_mul_pd(c0, _mm_set1_pd(x)));
+    return result[0] + result[1];
+}
+
+template <int ORDER, typename T>
+inline T cheb_eval_vector(T x, const T *c) {
+    if constexpr (ORDER == 12) {
+        return cheb_eval_vector_order_12(x, c);
+    } else if constexpr (ORDER == 8) {
+        return cheb_eval_vector_order_8(x, c);
+    } else if constexpr (ORDER == 4) {
+        return cheb_eval_vector_order_4(x, c);
+    } else {
+        return cheb_eval_fast<ORDER>(x, c);
+    }
+}
+template <int ORDER, typename T>
+bool test_correctness(T x, const T *c) {
+    T result_cheb_eval = cheb_eval<ORDER>(x, c);
+    T result_cheb_eval_generic = cheb_eval_fast<ORDER>(x, c);
+
+    // Consider two results as equal if the absolute difference is less than a small threshold
+    return (std::abs(result_cheb_eval - result_cheb_eval_generic) /
+            std::max(result_cheb_eval, result_cheb_eval_generic)) < 1e-14;
+}
+
+template <int ORDER, typename T>
+bool test_correctness_vector(T x, const T *c) {
+    T result_cheb_eval_vector = cheb_eval_vector<ORDER>(x, c);
+    T result_cheb_eval_generic = cheb_eval_generic(ORDER, x, c);
+
+    // Consider two results as equal if the absolute difference is less than a small threshold
+    return (std::abs(result_cheb_eval_vector - result_cheb_eval_generic) /
+            std::max(result_cheb_eval_vector, result_cheb_eval_generic)) < 1e-14;
+}
+
+template <typename T, int... Orders>
+void run_tests(T x, const T *c) {
+    std::string failed_orders; // Store orders for which tests failed
+    // Iterate over each order in the variadic list
+    (((test_correctness<Orders>(x, c) && test_correctness_vector<Orders>(x, c)) ||
+      (failed_orders += std::to_string(Orders) + ", ", false)),
+     ...);
+
+    if (!failed_orders.empty()) {
+        failed_orders.pop_back(); // Remove the last comma
+        throw std::runtime_error("Tests failed for order(s): " + failed_orders);
+    }
+}
+
+template <typename T, int... Orders>
+void run_benchmarks(T x, const T *c) {
+    using ankerl::nanobench::doNotOptimizeAway;
+    (ankerl::nanobench::Bench()
+         .unit("eval")
+         .title("order " + std::to_string(Orders))
+         .minEpochIterations(10000000)
+         .run("generic", [&] { doNotOptimizeAway(cheb_eval_generic(Orders, x, c)); })
+         .run("if", [&] { doNotOptimizeAway(cheb_eval_if(Orders, x, c)); })
+         .run("switch", [&] { doNotOptimizeAway(cheb_eval_switch(Orders, x, c)); })
+         .run("template", [&] { doNotOptimizeAway(cheb_eval<Orders>(x, c)); })
+         .run("fast", [&] { doNotOptimizeAway(cheb_eval_fast<Orders>(x, c)); })
+         .run("vector", [&] { doNotOptimizeAway(cheb_eval_vector<Orders>(x, c)); }),
+     ...);
 }
 
 int main() {
     std::mt19937 gen(1);
     std::uniform_real_distribution<> dis(-1, 1);
-    double c[32];
-    for (size_t i = 0; i < 32; ++i)
-        c[i] = dis(gen);
+    alignas(sizeof(double) * 4) double c[128];
+    for (double &i : c)
+        i = dis(gen);
 
     double x{0.1};
-    using ankerl::nanobench::doNotOptimizeAway;
-    {
-        auto b = ankerl::nanobench::Bench().unit("eval").title("order 6").minEpochIterations(10000000);
-        b.run("generic", [&] { doNotOptimizeAway(cheb_eval_generic(6, x, c)); });
-        b.run("template", [&] { doNotOptimizeAway(cheb_eval<6>(x, c)); });
-        b.run("if", [&] { doNotOptimizeAway(cheb_eval_if(6, x, c)); });
-        b.run("switch", [&] { doNotOptimizeAway(cheb_eval_switch(6, x, c)); });
-    }
-    {
-        auto b = ankerl::nanobench::Bench().unit("eval").title("order 8").minEpochIterations(10000000);
-        b.run("generic", [&] { doNotOptimizeAway(cheb_eval_generic(8, x, c)); });
-        b.run("template", [&] { doNotOptimizeAway(cheb_eval<8>(x, c)); });
-        b.run("if", [&] { doNotOptimizeAway(cheb_eval_if(8, x, c)); });
-        b.run("switch", [&] { doNotOptimizeAway(cheb_eval_switch(8, x, c)); });
-    }
-    {
-        auto b = ankerl::nanobench::Bench().unit("eval").title("order 10").minEpochIterations(10000000);
-        b.run("generic", [&] { doNotOptimizeAway(cheb_eval_generic(10, x, c)); });
-        b.run("template", [&] { doNotOptimizeAway(cheb_eval<10>(x, c)); });
-        b.run("if", [&] { doNotOptimizeAway(cheb_eval_if(10, x, c)); });
-        b.run("switch", [&] { doNotOptimizeAway(cheb_eval_switch(10, x, c)); });
-    }
-    {
-        auto b = ankerl::nanobench::Bench().unit("eval").title("order 12").minEpochIterations(10000000);
-        b.run("generic", [&] { doNotOptimizeAway(cheb_eval_generic(12, x, c)); });
-        b.run("template", [&] { doNotOptimizeAway(cheb_eval<12>(x, c)); });
-        b.run("if", [&] { doNotOptimizeAway(cheb_eval_if(12, x, c)); });
-        b.run("switch", [&] { doNotOptimizeAway(cheb_eval_switch(12, x, c)); });
-    }
+
+    run_tests<double, 4, 6, 8, 10, 12>(x, c);
+    run_benchmarks<double, 4, 6, 8, 10, 12>(x, c);
 
     return 0;
 }

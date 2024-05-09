@@ -4,7 +4,8 @@ project(
   LANGUAGES CXX
 )
 
-set(CMAKE_CXX_STANDARD 17)
+add_compile_options(-march=native)
+set(CMAKE_CXX_STANDARD 23)
 
 set (default_build_type "Release")
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
