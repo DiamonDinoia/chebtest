@@ -1,6 +1,7 @@
 #include <cmath>       // for std::abs
 #include <immintrin.h> // for AVX
 #include <iostream>
+#include <limits>
 #include <nanobench.h>
 #include <random>
 #include <stdexcept>
@@ -61,10 +62,9 @@ __attribute__((always_inline)) inline T cheb_eval_vector_order_8(T x, const T *c
     const __m256d x2 = _mm256_set1_pd(2 * x);
 
     __m256d c0 = _mm256_loadu_pd(c);
-    __m256d c1 = _mm256_loadu_pd(c + 4);
+    __m256d c1 = _mm256_set1_pd(0);
 
-    __m256d tmp = c1;
-    c1 = _mm256_sub_pd(_mm256_loadu_pd(c), c0);
+    __m256d tmp = _mm256_loadu_pd(c + 4);
     c0 = _mm256_fmadd_pd(c0, x2, tmp);
 
     tmp = c1;
