@@ -1,5 +1,6 @@
 #include <cmath>       // for std::abs
 #include <immintrin.h> // for AVX
+#include <iostream>
 #include <nanobench.h>
 #include <random>
 #include <stdexcept>
@@ -75,18 +76,19 @@ inline T cheb_eval_vector_order_8(T x, const T *c) {
 
 template <typename T>
 inline T cheb_eval_vector_order_4(T x, const T *c) {
-    const __m128d x2 = _mm_set1_pd(2 * x);
-
-    __m128d c0 = _mm_loadu_pd(c);
-    __m128d c1 = _mm_loadu_pd(c + 2);
-
-    __m128d tmp = c1;
-    c1 = _mm_sub_pd(_mm_loadu_pd(c + 4), c0);
-    c0 = _mm_add_pd(tmp, _mm_mul_pd(c0, x2));
-
-    // Combine the results
-    __m128d result = _mm_add_pd(c1, _mm_mul_pd(c0, _mm_set1_pd(x)));
-    return result[0] + result[1];
+    const T x2 = 2 * x;
+    // Load the first two coefficients
+    __m256d c0_c1 = _mm256_set_pd(0, 0, c[1], c[0]);
+    // Load the next pair of coefficients
+    __m256d c_i_c_i1 = _mm256_set_pd(0, 0, c[3], c[2]);
+    // Compute c1
+    __m256d c1 = _mm256_sub_pd(c_i_c_i1, c0_c1);
+    // Compute c0
+    c0_c1 = _mm256_add_pd(_mm256_permute_pd(c0_c1, 0x05), _mm256_mul_pd(c0_c1, _mm256_set1_pd(x2)));
+    // Update c0_c1 for the next iteration
+    c0_c1 = _mm256_blend_pd(c1, c0_c1, 0b1100);
+    // Extract the final result from c0_c1
+    return c0_c1[0] + c0_c1[1];
 }
 
 template <int ORDER, typename T>
@@ -98,17 +100,20 @@ inline T cheb_eval_vector(T x, const T *c) {
     } else if constexpr (ORDER == 4) {
         return cheb_eval_vector_order_4(x, c);
     } else {
-        return cheb_eval_fast<ORDER>(x, c);
+        return cheb_eval<ORDER>(x, c);
     }
 }
 template <int ORDER, typename T>
 bool test_correctness(T x, const T *c) {
     T result_cheb_eval = cheb_eval<ORDER>(x, c);
     T result_cheb_eval_generic = cheb_eval_fast<ORDER>(x, c);
-
+    auto valid = (std::abs(result_cheb_eval - result_cheb_eval_generic) /
+                  std::max(result_cheb_eval, result_cheb_eval_generic)) < 1e-14;
+    if (!valid) {
+        std::cout << "order " << ORDER << " " << result_cheb_eval << " " << result_cheb_eval_generic << std::endl;
+    }
     // Consider two results as equal if the absolute difference is less than a small threshold
-    return (std::abs(result_cheb_eval - result_cheb_eval_generic) /
-            std::max(result_cheb_eval, result_cheb_eval_generic)) < 1e-14;
+    return valid;
 }
 
 template <int ORDER, typename T>
