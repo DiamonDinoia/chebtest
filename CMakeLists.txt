@@ -21,11 +21,18 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(nanobench)
 
+FetchContent_Declare(
+        xsimd
+        GIT_REPOSITORY https://github.com/xtensor-stack/xsimd.git
+        GIT_TAG 13.0.0
+        GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(xsimd)
+
 add_executable(chebtest src/benchmarks.cpp src/cheb.cpp)
-target_link_libraries(chebtest PUBLIC nanobench)
+target_link_libraries(chebtest PUBLIC nanobench xsimd)
 target_include_directories(chebtest PUBLIC)
 
 add_executable(chebtest_ipo src/benchmarks.cpp src/cheb.cpp)
-target_link_libraries(chebtest_ipo PUBLIC nanobench)
+target_link_libraries(chebtest_ipo PUBLIC nanobench xsimd)
 target_include_directories(chebtest_ipo PUBLIC)
 set_property(TARGET chebtest_ipo PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
