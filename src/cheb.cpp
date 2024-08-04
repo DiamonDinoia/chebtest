@@ -17,7 +17,9 @@ double cheb_eval_generic(int order, double x, const double *__restrict__ c) {
 
 
 double cheb_eval_if(int order, double x, const double *__restrict__ c) {
-    if (order == 6)
+    if (order == 4)
+        return cheb_eval_generic(4, x, c);
+    else if (order == 6)
         return cheb_eval_generic(6, x, c);
     else if (order == 8)
         return cheb_eval_generic(8, x, c);
@@ -31,21 +33,21 @@ double cheb_eval_if(int order, double x, const double *__restrict__ c) {
 
 double cheb_eval_switch(int order, double x, const double *__restrict__ c) {
     switch (order) {
+    case 4: {
+        return cheb_eval_generic(4, x, c);
+    }
     case 6: {
         return cheb_eval_generic(6, x, c);
-        break;
     }
     case 8: {
         return cheb_eval_generic(8, x, c);
-        break;
     }
     case 10: {
         return cheb_eval_generic(10, x, c);
-        break;
     }
     case 12: {
         return cheb_eval_generic(12, x, c);
-        break;
+
     }
     default:
         return cheb_eval_generic(order, x, c);

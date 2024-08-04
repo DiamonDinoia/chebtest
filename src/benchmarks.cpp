@@ -13,12 +13,20 @@ double cheb_eval_switch(int order, double x, const double *c);
 double cheb_eval_4(double x, const double *__restrict__ c) {
     // note (RB): uses clenshaw's method to avoid direct calculation of recurrence relation of
     // T_i, where res = \Sum_i T_i c_i
-    const double x20 = 2 * x * c[0];
+    /*
     using batch_t = xsimd::make_sized_batch_t<double,4>;
     const batch_t c0_v{c[2], - c[0] , c[1] , x20};
     const batch_t c1_v{c[3], - c[1] , x20 , 0.0};
 
     return xsimd::reduce_add(xsimd::fma(batch_t{x}, c0_v, c1_v));
+    */
+    using batch_t = xsimd::make_sized_batch_t<double, 2>;
+    const auto x20 = batch_t{2 * x * c[0]};
+    const auto c1 = batch_t{c[1], 0};
+    const auto c01 = batch_t::load_aligned(c);
+    const auto c23 = batch_t::load_aligned(c + 2);
+    const auto res = c23 - c01 + c1 + x20;
+    return xsimd::fma(res.get(0), x, res.get(1));
 }
 
 template <int ORDER, typename T>
@@ -52,7 +60,7 @@ template <int ORDER, typename T>
 bool test_correctness(T x, const T *c) {
     T result_cheb_eval = cheb_eval<ORDER>(x, c);
     T result_cheb_eval_generic = cheb_eval_fast<ORDER>(x, c);
-    auto valid = 1 - result_cheb_eval/result_cheb_eval_generic < 1e-14;
+    auto valid = 1 - result_cheb_eval / result_cheb_eval_generic < 1e-14;
     if (!valid) {
         std::cout << "order " << ORDER << " " << result_cheb_eval << " " << result_cheb_eval_generic << std::endl;
     }
